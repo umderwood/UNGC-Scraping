@@ -34,47 +34,37 @@ def data_getter(url):
 
 def get_leave_date(url):
 	''' Finds the date that the entity became delisted at URL '''
-	sp = data_getter(url)
+	#sp = data_getter(url)
+	f = open(url)
+	sp = BeautifulSoup(f.read(), "lxml")
 	
 	# Format of text we're searching:
 	#<div class='company-information-cop-due'><strong>Delisted on:</strong> <time>2016-02-02</time></div>
+	start = sp.find('div', {'class':'company-information-since'})
 	ldtext = sp.find('div',  {'class':'company-information-cop-due'})
 	othertext = sp.find('div', {'class':'company-information-overview'})
-	other_list = othertext.findAll('dd')
-# 		<div class='column company-information-overview'>
-#           <h2>Overview</h2>
-# 
-#           <dl>
-#               <dt>Country:</dt>
-#               <dd>United Arab Emirates</dd>
-# 
-#               <dt>Org. Type:</dt>
-#               <dd>SME</dd>
-# 
-#               <dt>Sector:</dt>
-#               <dd>Travel &amp; Leisure</dd>
-# 
-#             <dt>Global Compact Status:</dt>
-#             <dd>Delisted</dd>
-# 
-#               <dt>Reason for Delisting:</dt>
-#               <dd>Other reason related to the Integrity Measures</dd>
-# 
-#               <dt>Employees:</dt>
-#               <dd>20</dd>
-# 
-#               <dt>Ownership:</dt>
-#               <dd>Privately Held</dd>
-# 
-#           </dl>	
-	return(ldtext.time.string)
+	keys = othertext.findAll('dt')
+	vals = othertext.findAll('dd')
+	d = {'':ldtext.time.string, 'join-date':start.time.string}
+	
+	for i in range(len(keys)):
+		d[keys[i].string] = vals[i].string
+	for key in d.keys():
+		print(key, d[key])
+	#return(ldtext.time.string)
 
-def add_active():
+def add_table():
 	''' Adds the UNGC participants to a database, using a new table called 'active' '''
 	# create a new table with columns called name, type, sector, country, and date
-	# Fill table with the active members of UNGC
-	cursor.execute("""CREATE TABLE active (name char(150), type char(150), sector char(150), country char(150), date date);""")
-	
+	# Fill table with members of UNGC
+	# Can add fields to active, noncomm or delisted by looking at status!
+	# or is it better to only have one table?
+	fields = (name, type, sector, country, date-joined, date-due)
+
+	cursor.execute("""CREATE TABLE active (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
+	cursor.execute("""CREATE TABLE noncomm (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
+	cursor.execute("""CREATE TABLE delisted (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
+		
 	# The half of active link after page number
 	THE_REST_ACTIVE = 	'&search[keywords]=&search[per_page]=50&search[reporting_status][]=active&search[sort_direction]=asc&search[sort_field]=&utf8='
 	
@@ -200,6 +190,7 @@ def add_noncomm():
 		conn.commit()		
 
 #add_active()
+get_leave_date('./dict_test.html')
 
 #add_delisted()
 #cursor.execute("""SELECT delist_date from delisted""")
