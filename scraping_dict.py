@@ -2,7 +2,8 @@
 #2016 June 22
 
 from bs4 import BeautifulSoup
-import urllib3, certifi, psycopg2
+import urllib3, certifi, psycopg2, string
+from dateutil.parser import parse
 
 # Open a pool manager object; create a socket requiring certificates
 http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
@@ -11,7 +12,7 @@ http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 #try:
 
 # db login info
-connect_str = "dbname='testpython' user='ducttapecreator' host='localhost' " #+ \
+connect_str = "dbname='ungc_test' user='ducttapecreator' host='localhost' " #+ \
 #			  "password='OLIVIA'"
 
 # use our connection values to establish a connection
@@ -24,7 +25,11 @@ BASE_URL = 'https://www.unglobalcompact.org/what-is-gc/participants/search?page=
 
 # Root page of UNGC, need for links to non-communicating and delisted entities
 UNGC_URL = 'https://www.unglobalcompact.org'
-
+def fix(stri):
+	stri = stri.lower()
+	stri = "".join(l for l in stri if l not in string.punctuation)
+	stri = stri.replace(' ','_')
+	return(stri)
 
 def data_getter(url):
 	''' Returns the page data from URL '''
@@ -32,26 +37,25 @@ def data_getter(url):
 	sp = BeautifulSoup(ld.data, "lxml")
 	return(sp)
 
-def get_leave_date(url):
+def scrape_data(url):
 	''' Finds the date that the entity became delisted at URL '''
-	#sp = data_getter(url)
-	f = open(url)
-	sp = BeautifulSoup(f.read(), "lxml")
-	
-	# Format of text we're searching:
-	#<div class='company-information-cop-due'><strong>Delisted on:</strong> <time>2016-02-02</time></div>
+	sp = data_getter(url)
+	nm = sp.find('header', {'class':'main-content-header'})
 	start = sp.find('div', {'class':'company-information-since'})
 	ldtext = sp.find('div',  {'class':'company-information-cop-due'})
 	othertext = sp.find('div', {'class':'company-information-overview'})
 	keys = othertext.findAll('dt')
 	vals = othertext.findAll('dd')
-	d = {'':ldtext.time.string, 'join-date':start.time.string}
 	
+	dd = parse(ldtext.time.string).date()
+	dj = parse(start.time.string).strftime('%Y-%m-%d')
+
+	d = {'name': nm.h1.string, 'date_due':dd, 'date_joined':dj}
 	for i in range(len(keys)):
-		d[keys[i].string] = vals[i].string
+		d[fix(keys[i].string)] = vals[i].string
 	for key in d.keys():
 		print(key, d[key])
-	#return(ldtext.time.string)
+	return(d)
 
 def add_table():
 	''' Adds the UNGC participants to a database, using a new table called 'active' '''
@@ -59,51 +63,56 @@ def add_table():
 	# Fill table with members of UNGC
 	# Can add fields to active, noncomm or delisted by looking at status!
 	# or is it better to only have one table?
-	fields = (name, type, sector, country, date-joined, date-due)
+	fields = ('name', 'org_type', 'sector', 'country', 'global_compact_status', 'date_joined', 'date_due', 'employees', 'ownership')
 
-	cursor.execute("""CREATE TABLE active (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
-	cursor.execute("""CREATE TABLE noncomm (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
-	cursor.execute("""CREATE TABLE delisted (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
+	cursor.execute("CREATE TABLE active (%s char(150), %s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date, %s int, %s char(150));" % fields)
+	#cursor.execute("""CREATE TABLE noncomm (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
+	#cursor.execute("""CREATE TABLE delisted (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
 		
 	# The half of active link after page number
-	THE_REST_ACTIVE = 	'&search[keywords]=&search[per_page]=50&search[reporting_status][]=active&search[sort_direction]=asc&search[sort_field]=&utf8='
+	THE_REST = 	'&search[keywords]=&search[per_page]=50&search[sort_direction]=asc&search[sort_field]=&utf8='
+	#THE_REST_ACTIVE = '&search[keywords]=&search[per_page]=50&search[reporting_status][]=active&search[sort_direction]=asc&search[sort_field]=&utf8='
 	
 	# Is there a way to know how many pages without going to site?
 	# Maybe do while loop, checking for 50 things? Probably not worth it, but could be more elegant
-	for i in range(185):
+	for i in range(1): #439 as of 26 June 2016
 	
 		# observe which page we're parsing
 		print(i)
 		
 		# get data from ith page
-		soup = data_getter(BASE_URL + str(i+1) + THE_REST_ACTIVE)
-
-		#Name    Type    Sector    Country	date
-
-		# <th class='name'><a href="/what-is-gc/participants/71191-The-Luxury-Global">The Luxury Global</a></th>
-        # <td class='type'>Small or Medium-sized Enterprise</td>
-        # <td class='sector'>Travel &amp; Leisure</td>
-        # <td class='country'>United Arab Emirates</td>
-        # <td class='joined-on'>2015-12-01</td>
-        
-		names = [th.string for th in soup.findAll("th", 'name')][1:]
-		types = [td.string for td in soup.findAll('td', 'type')]
-		sectors = [td.string for td in soup.findAll('td', 'sector')]
-		countries = [td.string for td in soup.findAll('td', 'country')]
-		dates = [td.string for td in soup.findAll('td', 'joined-on')]
+		soup = data_getter(BASE_URL + str(i+1) + THE_REST)
+		
+		#Name    Type    Sector    Country	Join_date Delist_date
+		nf = soup.findAll("th", 'name')
+		
+		links = [UNGC_URL + th.a['href'] for th in nf[1:]]
+		
+		# the list of dates for those delistings
+		
+		for link in links:
+			data = ()
+			d = scrape_data(link)
+			for f in fields:
+				data += (d[f], )
+			cmd0 = "INSERT INTO active (%s, %s, %s, %s, %s, %s, %s, %s, %s) " % fields
+			cmd1 = "VALUES (%r, %r, %r, %r, %r, %s, TO_DATE(%s,'DD Mon YYYY'), TO_DATE(%s,'DD Mon YYYY'), %r)" % data
+			cmd = cmd0 + cmd1
+			#print(cmd)
+			# Add to our db:
+			cursor.execute(cmd)
+								
 		
 		# make sure that we're getting the same number of each of these; names had same tag in headings and content of table
 		# print(len(names), len(types), len(sectors), len(countries), len(dates))
 		# print(names[0], types[0], sectors[0], countries[0], dates[0])
 		
-		# Add to our db:
-		for j in range(len(names)):
-			cursor.execute("""INSERT INTO active (name, type, sector, country, date)
-								VALUES (%s, %s, %s, %s, %s)""",
-								(names[j], types[j], sectors[j], countries[j], dates[j]))
-								
+
 		# Save db
-		conn.commit()
+		#conn.commit()
+		
+		
+		
 	
 def add_delisted():
 	''' Adds the UNGC participants to a database, using a new table called 'active' '''
@@ -190,13 +199,13 @@ def add_noncomm():
 		conn.commit()		
 
 #add_active()
-get_leave_date('./dict_test.html')
+add_table()
 
 #add_delisted()
-#cursor.execute("""SELECT delist_date from delisted""")
-#cs = cursor.fetchall()
-#for c in cs:
-#	print(c)
+cursor.execute("""SELECT date-joined from active""")
+cs = cursor.fetchall()
+for c in cs:
+	print(c)
 
 cursor.close()
 conn.close()
