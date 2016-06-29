@@ -29,8 +29,13 @@ def fix(stri):
 	stri = stri.lower()
 	stri = "".join(l for l in stri if l not in string.punctuation)
 	stri = stri.replace(' ','_')
+	
 	return(stri)
 
+def apostrophix(stri):
+	stri = "".join(l for l in stri if l not in string.punctuation)
+	return(stri)
+	
 def data_getter(url):
 	''' Returns the page data from URL '''
 	ld = http.request('GET', url)
@@ -47,14 +52,14 @@ def scrape_data(url):
 	keys = othertext.findAll('dt')
 	vals = othertext.findAll('dd')
 	
-	dd = parse(ldtext.time.string).date()
-	dj = parse(start.time.string).strftime('%Y-%m-%d')
+	dd = parse(ldtext.time.string).strftime('%Y/%m/%d')
+	dj = parse(start.time.string).strftime('%Y/%m/%d')
 
-	d = {'name': nm.h1.string, 'date_due':dd, 'date_joined':dj}
+	d = {'name': fix(nm.h1.string), 'date_due':dd, 'date_joined':dj}
 	for i in range(len(keys)):
-		d[fix(keys[i].string)] = vals[i].string
-	for key in d.keys():
-		print(key, d[key])
+		d[fix(keys[i].string)] = fix(vals[i].string)
+	#for key in d.keys():
+	#	print(key, d[key])
 	return(d)
 
 def add_table():
@@ -64,8 +69,8 @@ def add_table():
 	# Can add fields to active, noncomm or delisted by looking at status!
 	# or is it better to only have one table?
 	fields = ('name', 'org_type', 'sector', 'country', 'global_compact_status', 'date_joined', 'date_due', 'employees', 'ownership')
-
-	cursor.execute("CREATE TABLE active (%s char(150), %s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date, %s int, %s char(150));" % fields)
+	cursor.execute('''drop table if exists UNGC;''')
+	cursor.execute("CREATE TABLE UNGC (%s char(150), %s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date, %s int, %s char(150));" % fields)
 	#cursor.execute("""CREATE TABLE noncomm (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
 	#cursor.execute("""CREATE TABLE delisted (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
 		
@@ -75,7 +80,7 @@ def add_table():
 	
 	# Is there a way to know how many pages without going to site?
 	# Maybe do while loop, checking for 50 things? Probably not worth it, but could be more elegant
-	for i in range(1): #439 as of 26 June 2016
+	for i in range(439): #439 as of 26 June 2016
 	
 		# observe which page we're parsing
 		print(i)
@@ -95,9 +100,11 @@ def add_table():
 			d = scrape_data(link)
 			for f in fields:
 				data += (d[f], )
-			cmd0 = "INSERT INTO active (%s, %s, %s, %s, %s, %s, %s, %s, %s) " % fields
-			cmd1 = "VALUES (%r, %r, %r, %r, %r, %s, TO_DATE(%s,'DD Mon YYYY'), TO_DATE(%s,'DD Mon YYYY'), %r)" % data
-			cmd = cmd0 + cmd1
+			#print(data[5], data[6])
+			#  ('name', 'org_type', 'sector', 'country', 'global_compact_status', 'date_joined', 'date_due', 'employees', 'ownership')
+			cmd0 = "INSERT INTO UNGC (%s, %s, %s, %s, %s, %s, %s, %s, %s) " % fields
+			cmd1 = "VALUES (%r, %r, %r, %r, %r, %r, %r, %s, %r)" % data
+			cmd = cmd0 + cmd1	
 			#print(cmd)
 			# Add to our db:
 			cursor.execute(cmd)
@@ -109,7 +116,7 @@ def add_table():
 		
 
 		# Save db
-		#conn.commit()
+		conn.commit()
 		
 		
 		
@@ -202,7 +209,10 @@ def add_noncomm():
 add_table()
 
 #add_delisted()
-cursor.execute("""SELECT date-joined from active""")
+cursor.execute("""SELECT date_joined
+					 from active
+					 where date_joined < '2014/01/01'
+					 limit 50;""")
 cs = cursor.fetchall()
 for c in cs:
 	print(c)
