@@ -31,11 +31,16 @@ def fix(stri):
 		get rid of spaces and ., other punctuation too, preventatively
 		may cause complications for country ID but postgres doesn't case sensitive
 		underscores will be difficult, let's deal with that later.'''
-	stri = stri.lower()
-	stri = "".join(l for l in stri if l not in string.punctuation)
-	stri = stri.replace(' ','_')
+	# Python interprets 'None' as None for some reason;
+	# 'None' was listed as reason for delisting so script errored out.
+	if stri is not None:
+		stri = stri.lower()
+		stri = "".join(l for l in stri if l not in string.punctuation)
+		stri = stri.replace(' ','_')
 	
-	return(stri)
+		return(stri)
+	else:
+		return("none")
 	
 def data_getter(url):
 	''' Returns the page data from URL '''
@@ -78,7 +83,7 @@ def add_table():
 	# or is it better to only have one table?
 	fields = ('name', 'org_type', 'sector', 'country', 'global_compact_status', 'date_joined', 'date_due', 'employees', 'ownership')
 	cursor.execute('''drop table if exists UNGC;''')
-	cursor.execute("CREATE TABLE UNGC (%s char(150), %s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date, %s int, %s char(150));" % fields)
+	cursor.execute("CREATE TABLE UNGC (%s char(250), %s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date, %s int, %s char(150));" % fields)
 			
 	# The half of active link after page number
 	THE_REST = 	'&search[keywords]=&search[per_page]=50&search[sort_direction]=asc&search[sort_field]=&utf8='
