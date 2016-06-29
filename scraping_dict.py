@@ -26,14 +26,15 @@ BASE_URL = 'https://www.unglobalcompact.org/what-is-gc/participants/search?page=
 # Root page of UNGC, need for links to non-communicating and delisted entities
 UNGC_URL = 'https://www.unglobalcompact.org'
 def fix(stri):
+	'''stri to clean for db entry
+		db not so good with apostrophes
+		get rid of spaces and ., other punctuation too, preventatively
+		may cause complications for country ID but postgres doesn't case sensitive
+		underscores will be difficult, let's deal with that later.'''
 	stri = stri.lower()
 	stri = "".join(l for l in stri if l not in string.punctuation)
 	stri = stri.replace(' ','_')
 	
-	return(stri)
-
-def apostrophix(stri):
-	stri = "".join(l for l in stri if l not in string.punctuation)
 	return(stri)
 	
 def data_getter(url):
@@ -45,21 +46,28 @@ def data_getter(url):
 def scrape_data(url):
 	''' Finds the date that the entity became delisted at URL '''
 	sp = data_getter(url)
+	# Find all the relevant locations in web page source
+	#name, date joined, and date due/delisted are in different locations
 	nm = sp.find('header', {'class':'main-content-header'})
 	start = sp.find('div', {'class':'company-information-since'})
 	ldtext = sp.find('div',  {'class':'company-information-cop-due'})
 	othertext = sp.find('div', {'class':'company-information-overview'})
+	# all other data is together, so we make list of key and value
 	keys = othertext.findAll('dt')
 	vals = othertext.findAll('dd')
 	
+	# clean dates so they are accepted by db
 	dd = parse(ldtext.time.string).strftime('%Y/%m/%d')
 	dj = parse(start.time.string).strftime('%Y/%m/%d')
-
+	
+	# build dict so we can return only one thing
 	d = {'name': fix(nm.h1.string), 'date_due':dd, 'date_joined':dj}
+	
+	# add rest of data to dict
 	for i in range(len(keys)):
 		d[fix(keys[i].string)] = fix(vals[i].string)
-	#for key in d.keys():
-	#	print(key, d[key])
+	
+	# return dictionary of keys (name, country, sector, etc.) with assoc. values ("tims_auto", "spain", "manufacturing", etc.)
 	return(d)
 
 def add_table():
@@ -71,15 +79,13 @@ def add_table():
 	fields = ('name', 'org_type', 'sector', 'country', 'global_compact_status', 'date_joined', 'date_due', 'employees', 'ownership')
 	cursor.execute('''drop table if exists UNGC;''')
 	cursor.execute("CREATE TABLE UNGC (%s char(150), %s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date, %s int, %s char(150));" % fields)
-	#cursor.execute("""CREATE TABLE noncomm (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
-	#cursor.execute("""CREATE TABLE delisted (%s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date);""", fields)
-		
+			
 	# The half of active link after page number
 	THE_REST = 	'&search[keywords]=&search[per_page]=50&search[sort_direction]=asc&search[sort_field]=&utf8='
-	#THE_REST_ACTIVE = '&search[keywords]=&search[per_page]=50&search[reporting_status][]=active&search[sort_direction]=asc&search[sort_field]=&utf8='
 	
 	# Is there a way to know how many pages without going to site?
 	# Maybe do while loop, checking for 50 things? Probably not worth it, but could be more elegant
+	
 	for i in range(439): #439 as of 26 June 2016
 	
 		# observe which page we're parsing
@@ -88,9 +94,10 @@ def add_table():
 		# get data from ith page
 		soup = data_getter(BASE_URL + str(i+1) + THE_REST)
 		
-		#Name    Type    Sector    Country	Join_date Delist_date
+		# get name tags, for links are stored there
 		nf = soup.findAll("th", 'name')
 		
+		# build list of links to get important dates, # employees, etc.
 		links = [UNGC_URL + th.a['href'] for th in nf[1:]]
 		
 		# the list of dates for those delistings
@@ -98,14 +105,18 @@ def add_table():
 		for link in links:
 			data = ()
 			d = scrape_data(link)
+			
+			# make new tuple of dictionary values
+			# Do we really need a dictionary here? should be able to use a list so we don't have to build anything...
 			for f in fields:
 				data += (d[f], )
-			#print(data[5], data[6])
+			
 			#  ('name', 'org_type', 'sector', 'country', 'global_compact_status', 'date_joined', 'date_due', 'employees', 'ownership')
+			# postgres wasn't accepting the string unless it was done in 2 pieces, parentheses maybe?
 			cmd0 = "INSERT INTO UNGC (%s, %s, %s, %s, %s, %s, %s, %s, %s) " % fields
 			cmd1 = "VALUES (%r, %r, %r, %r, %r, %r, %r, %s, %r)" % data
 			cmd = cmd0 + cmd1	
-			#print(cmd)
+			
 			# Add to our db:
 			cursor.execute(cmd)
 								
@@ -118,97 +129,9 @@ def add_table():
 		# Save db
 		conn.commit()
 		
-		
-		
-	
-def add_delisted():
-	''' Adds the UNGC participants to a database, using a new table called 'active' '''
-	cursor.execute("""CREATE TABLE delisted (name char(150), type char(150), sector char(150), country char(150), join_date date, delist_date date, reason char(200), size int, ownership char(50));""")
-	THE_REST_DELISTED = '&search[keywords]=&search[reporting_status][]=delisted&search[per_page]=50&search[sort_field]=&search[sort_direction]=asc%27'
-	for i in range(158): #158 as of june22
-		print(i)
-		soup = data_getter(BASE_URL + str(i+1) + THE_REST_DELISTED)
-
-		#Name    Type    Sector    Country	Join_date Delist_date
-		nf = soup.findAll("th", 'name')
-		names = [th.string for th in nf][1:]
-		#print(names)
-		types = [td.string for td in soup.findAll('td', 'type')]
-		sectors = [td.string for td in soup.findAll('td', 'sector')]
-		countries = [td.string for td in soup.findAll('td', 'country')]
-		dates = [td.string for td in soup.findAll('td', 'joined-on')]
-		namelink = soup.find("table", "participants-table")
-		
-    	#<th class='name'><a href="/what-is-gc/participants/71191-The-Luxury-Global">
-		
-		# What a BATCH!! There was no href for the first one... was getting Nonetype no subscript error :(
-		# skip it; Thanks, slicing!
-		# The list of links to find the exit dates of participants
-		links = [UNGC_URL + th.a['href'] for th in nf[1:]]
-		
-		# the list of dates for those delistings
-		leavedates = []
-		for link in links:
-			leavedates.append(get_leave_date(link))
-			
-
-		
-		#print(len(names), len(types), len(sectors), len(countries), len(dates), len(links))
-		#print(names[0], types[0], sectors[0], countries[0], dates[0], links[0])
-		for j in range(len(names)):
-			cursor.execute("""INSERT INTO delisted (name, type, sector, country, join_date, delist_date)
-								VALUES (%s, %s, %s, %s, %s, %s)""",
-								(names[j], types[j], sectors[j], countries[j], dates[j], leavedates[j]))
-		
-		conn.commit()
-		
-def add_noncomm():
-	cursor.execute("""CREATE TABLE noncommunicating (name char(150), type char(150), sector char(150), country char(150), join_date date, due_date date);""")
-	THE_REST_NONCOMM = '&search[keywords]=&search[reporting_status][]=noncommunicating&search[per_page]=50&search[sort_field]=&search[sort_direction]=asc%27'
-	for i in range(96): #96 as of june22
-		print(i)
-		soup = data_getter(BASE_URL + str(i+1) + THE_REST_NONCOMM)
-
-		#Name    Type    Sector    Country	Join_date due_date
-		nf = soup.findAll("th", 'name')
-		
-		# The list of links to find the exit dates of entities
-		links = [UNGC_URL + th.a['href'] for th in nf[1:]]
-		
-		# the list of dates for those leavings
-		leavedates = []
-		for j in range(len(links)):
-			leavedates.append(get_leave_date(links[j]))
-		
-		names = [th.string for th in nf][1:]
-		
-		#print(names)
-		types = [td.string for td in soup.findAll('td', 'type')]
-		sectors = [td.string for td in soup.findAll('td', 'sector')]
-		countries = [td.string for td in soup.findAll('td', 'country')]
-		dates = [td.string for td in soup.findAll('td', 'joined-on')]
-		namelink = soup.find("table", "participants-table")
-
-		links = [UNGC_URL + th.a['href'] for th in nf[1:]]
-		
-		# the list of dates when COP was due
-		duedates = []
-		for link in links:
-			duedates.append(get_leave_date(link))
-			
-		print(len(names), len(types), len(sectors), len(countries), len(dates), len(links))
-		print(names[0], types[0], sectors[0], countries[0], dates[0], links[0])
-		for j in range(len(names)):
-			cursor.execute("""INSERT INTO noncommunicating (name, type, sector, country, join_date, due_date)
-								VALUES (%s, %s, %s, %s, %s, %s)""",
-								(names[j], types[j], sectors[j], countries[j], dates[j], duedates[j]))
-		
-		conn.commit()		
-
-#add_active()
 add_table()
 
-#add_delisted()
+# show that we have stuff in db:
 cursor.execute("""SELECT date_joined
 					 from active
 					 where date_joined < '2014/01/01'
