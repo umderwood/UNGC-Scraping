@@ -81,7 +81,7 @@ def scrape_data(url):
 	# return dictionary of keys (name, country, sector, etc.) with assoc. values ("tims_auto", "spain", "manufacturing", etc.)
 	return(d)
 
-def add_table():
+def add_ungc_table():
 	''' Adds the UNGC participants to a database, using a new table called 'active' '''
 	# create a new table with columns called name, type, sector, country, and date
 	# Fill table with members of UNGC
@@ -143,16 +143,20 @@ def add_table():
 		# Save db
 		conn.commit()
 		
-add_table()
+#add_ungc_table()
+def add_worldbank_table():
+	f = open("/Downloads/WGI_csv/WGI_Data.csv", 'r')
+	cursor.execute("CREATE TABLE UNGC (%s char(250), %s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date, %s int, %s char(150));" % fields)
 
+	
 # show that we have stuff in db:
-cursor.execute("""SELECT date_joined
-					 from ungc
-					 where date_joined < '2014/01/01'
-					 limit 50;""")
-cs = cursor.fetchall()
-for c in cs:
-	print(c)
+# cursor.execute("""SELECT date_joined
+# 					 from ungc
+# 					 where date_joined < '2014/01/01'
+# 					 limit 50;""")
+#cs = cursor.fetchall()
+#for c in cs:
+#	print(c)
 
 cursor.close()
 conn.close()
