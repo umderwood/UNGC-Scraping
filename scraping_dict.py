@@ -5,32 +5,29 @@ from bs4 import BeautifulSoup
 import urllib3, certifi, psycopg2, string
 from dateutil.parser import parse
 
-# Open a pool manager object; create a socket requiring certificates
-http = urllib3.PoolManager(cert_reqs="CERT_REQUIRED", ca_certs=certifi.where())
+def db():
+	'''globals are bad, mmkay?'''
+	# Use the try if we might not connect to the db
+	try:
 
-# Use the try if we might not connect to the db
-#try:
+		# db login info
+		connect_str = "dbname='ungc_test' user='ducttapecreator' host='localhost' " #+ \
+		#			  "password='OLIVIA'"
 
-# db login info
-connect_str = "dbname='ungc_test' user='ducttapecreator' host='localhost' " #+ \
-#			  "password='OLIVIA'"
-
-# use our connection values to establish a connection
-conn = psycopg2.connect(connect_str)
-# create a psycopg2 cursor that can execute queries
-cursor = conn.cursor()
-
-# First half of URL of search page of participants
-BASE_URL = "https://www.unglobalcompact.org/what-is-gc/participants/search?page="
-
-# Root page of UNGC, need for links to non-communicating and delisted entities
-UNGC_URL = "https://www.unglobalcompact.org"
+		# use our connection values to establish a connection
+		conn = psycopg2.connect(connect_str)
+		# create a psycopg2 cursor that can execute queries
+		
+		return(conn)
+	except Exception as e:
+    	print("Uh oh, can't connect. Invalid dbname, user or password?")
+    	print(e)
+    	
 def fix(stri, fu = 0):
 	'''stri to clean for db entry
 		db not so good with apostrophes
 		get rid of spaces and ., other punctuation too, preventatively
-		may cause complications for country ID but postgres doesn't case sensitive
-		underscores will be difficult, let's deal with that later.'''
+		may cause complications for country ID but postgres doesn't case sensitive'''
 	# Python interprets 'None' as None for some reason;
 	# 'None' was listed as reason for delisting so script errored out.
 	def fux(st):
@@ -83,21 +80,32 @@ def scrape_data(url):
 
 def add_ungc_table():
 	''' Adds the UNGC participants to a database, using a new table called 'active' '''
+	# Open a pool manager object; create a socket requiring certificates
+	http = urllib3.PoolManager(cert_reqs="CERT_REQUIRED", ca_certs=certifi.where())
+
+	# First half of URL of search page of participants
+	BASE_URL = "https://www.unglobalcompact.org/what-is-gc/participants/search?page="
+
+	# Root page of UNGC, need for links to non-communicating and delisted entities
+	UNGC_URL = "https://www.unglobalcompact.org"
+	
 	# create a new table with columns called name, type, sector, country, and date
 	# Fill table with members of UNGC
-	# Can add fields to active, noncomm or delisted by looking at status!
-	# or is it better to only have one table?
+	# Can add fields to active, noncomm or delisted by looking at status
+	
+	conn = db()
+	cursor = conn.cursor()
+	
 	fields = ("name", "org_type", "sector", "country", "global_compact_status", "date_joined", "date_due", "employees", "ownership")
 	cursor.execute('''drop table if exists UNGC;''')
-	cursor.execute("CREATE TABLE UNGC (%s char(250), %s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date, %s int, %s char(150));" % fields)
-			
+	cursor.execute("CREATE TABLE UNGC (%s charvar(250), %s charvar(150), %s charvar(150), %s charvar(150), %s charvar(150), %s date, %s date, %s int, %s charvar(150));" % fields)
 	# The half of active link after page number
 	THE_REST = 	"&search[keywords]=&search[per_page]=50&search[sort_direction]=asc&search[sort_field]=&utf8="
 	
 	# Is there a way to know how many pages without going to site?
 	# Maybe do while loop, checking for 50 things? Probably not worth it, but could be more elegant
 	
-	for i in range(0, 444): #444 as of 7 Aug 2016
+	for i in range(444): #444 as of 7 Aug 2016
 	
 		# observe which page we're parsing
 		print(i)
@@ -144,10 +152,50 @@ def add_ungc_table():
 		conn.commit()
 		
 #add_ungc_table()
+
 def add_worldbank_table():
 	f = open("/Downloads/WGI_csv/WGI_Data.csv", 'r')
-	cursor.execute("CREATE TABLE UNGC (%s char(250), %s char(150), %s char(150), %s char(150), %s char(150), %s date, %s date, %s int, %s char(150));" % fields)
+	fields = ("country", "ind_code", "year", "val")
+	cursor.execute("CREATE TABLE WGI (%s charvar(250), %s charvar(150), %s date, %s float);" % fields)
+	first = f.readline()
+	for line in f:
+		for i, year in enumerate(first[4:]):
+			entry = (line[0], line[3], year, line[i+4])
+		
+		cursor.execute('INSERT INTO WGI (%s, %s, %s, %s) VALUES (%s, %s, %s, %s);' % entry)
+	f.close()
 
+def count_by_years_table():
+	
+	# make a list of countries in the UNGC list
+	clist = []
+	# Fill cursor buffer
+	cursor.execute('select distinct country from ungc')
+	# dump cursor buffer into list
+	for country in cursor:
+		# country is a tuple, like ('country', ) so it needs the index
+		clist.append(country[0])
+		
+	# let's just start a new table
+	cursor.execute('drop table if exists BY_COUNTRY;')
+	cursor.execute("CREATE TABLE BY_COUNTRY (Country CHAR(250), Date DATE, Firms INT, Sectors INT, Types INT, CPI FLOAT);")
+
+	def year_total_count(year, cry):
+  		st = "SELECT count(name) as entities, count(distinct sector) as sectors, count(distinct org_type) as orgs from UNGC where date_joined <= '%s' and date_due > '%s' and country='%s' limit 20;" % (year, year+10000, country)
+		
+		return(cursor.execute(st))
+	
+	for j in range(len(clist)):
+		cry = clist[j]
+		yr = 19950101
+		for(i in 1:22){
+    #print(country)
+		df_postgres = year_total_count(yr, cry)[0]
+    	print(yr)
+    #print(df_postgres)
+    yr = yr + 10000
+  }
+}
 	
 # show that we have stuff in db:
 # cursor.execute("""SELECT date_joined
@@ -160,13 +208,6 @@ def add_worldbank_table():
 
 cursor.close()
 conn.close()
-
-#except Exception as e:
-#    print("Uh oh, can't connect. Invalid dbname, user or password?")
-#    print(e)
-
-
-
 
 
 #def get_category_links(section_url):
