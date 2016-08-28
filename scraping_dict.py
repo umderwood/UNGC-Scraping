@@ -5,24 +5,23 @@ from bs4 import BeautifulSoup
 import urllib3, certifi, psycopg2, string
 from dateutil.parser import parse
 
+
 def db():
 	'''globals are bad, mmkay?'''
 	# Use the try if we might not connect to the db
 	try:
 
 		# db login info
-		connect_str = "dbname='ungc_test' user='ducttapecreator' host='localhost' " #+ \
-		#			  "password='OLIVIA'"
+		connect_str = "dbname='ungc_test' user='ducttapecreator' host='localhost' "
 
 		# use our connection values to establish a connection
 		conn = psycopg2.connect(connect_str)
 		# create a psycopg2 cursor that can execute queries
-		
 		return(conn)
 	except Exception as e:
-    	print("Uh oh, can't connect. Invalid dbname, user or password?")
-    	print(e)
-    	
+		print("Uh oh, can't connect. Invalid dbname, user or password?")
+		print(e)
+
 def fix(stri, fu = 0):
 	'''stri to clean for db entry
 		db not so good with apostrophes
@@ -98,7 +97,7 @@ def add_ungc_table():
 	
 	fields = ("name", "org_type", "sector", "country", "global_compact_status", "date_joined", "date_due", "employees", "ownership")
 	cursor.execute('''drop table if exists UNGC;''')
-	cursor.execute("CREATE TABLE UNGC (%s charvar(250), %s charvar(150), %s charvar(150), %s charvar(150), %s charvar(150), %s date, %s date, %s int, %s charvar(150));" % fields)
+	cursor.execute("CREATE TABLE UNGC (%s varchar(250), %s varchar(150), %s varchar(150), %s varchar(150), %s varchar(150), %s date, %s date, %s int, %s varchar(150));" % fields)
 	# The half of active link after page number
 	THE_REST = 	"&search[keywords]=&search[per_page]=50&search[sort_direction]=asc&search[sort_field]=&utf8="
 	
@@ -139,7 +138,7 @@ def add_ungc_table():
 			# Add to our db:
 			try:
 				cursor.execute(cmd)
-			except psycopg2.ProgrammingError:
+			except psycopg2.ProgrammingError: # I think... this is because SQL differentiates bt " and '
 				print('ah, piss')
 				return(1)
 		
@@ -150,13 +149,13 @@ def add_ungc_table():
 
 		# Save db
 		conn.commit()
-		
-#add_ungc_table()
+		conn.close()
+
 
 def add_worldbank_table():
 	f = open("/Downloads/WGI_csv/WGI_Data.csv", 'r')
 	fields = ("country", "ind_code", "year", "val")
-	cursor.execute("CREATE TABLE WGI (%s charvar(250), %s charvar(150), %s date, %s float);" % fields)
+	cursor.execute("CREATE TABLE WGI (%s varchar(250), %s varchar(150), %s date, %s float);" % fields)
 	first = f.readline()
 	for line in f:
 		for i, year in enumerate(first[4:]):
@@ -181,21 +180,20 @@ def count_by_years_table():
 	cursor.execute("CREATE TABLE BY_COUNTRY (Country CHAR(250), Date DATE, Firms INT, Sectors INT, Types INT, CPI FLOAT);")
 
 	def year_total_count(year, cry):
-  		st = "SELECT count(name) as entities, count(distinct sector) as sectors, count(distinct org_type) as orgs from UNGC where date_joined <= '%s' and date_due > '%s' and country='%s' limit 20;" % (year, year+10000, country)
+		st = "SELECT count(name) as entities, count(distinct sector) as sectors, count(distinct org_type) as orgs from UNGC where date_joined <= '%s' and date_due > '%s' and country='%s' limit 20;" % (year, year+10000, country)
 		
 		return(cursor.execute(st))
 	
 	for j in range(len(clist)):
 		cry = clist[j]
 		yr = 19950101
-		for(i in 1:22){
-    #print(country)
-		df_postgres = year_total_count(yr, cry)[0]
-    	print(yr)
-    #print(df_postgres)
-    yr = yr + 10000
-  }
-}
+		for i in range(1,22):
+			#print(country)
+			df_postgres = year_total_count(yr, cry)[0]
+			print(yr)
+			#print(df_postgres)
+			yr = yr + 10000
+
 	
 # show that we have stuff in db:
 # cursor.execute("""SELECT date_joined
@@ -206,10 +204,61 @@ def count_by_years_table():
 #for c in cs:
 #	print(c)
 
-cursor.close()
-conn.close()
+def add_CPI_table():
+	''' Adds CPI data from Transparency International. Not country rank though, not really useful for anything '''
+	# CPI_Final has the CPI data from TI, with 0 instead of blanks, 
+	# and countries removed if they have data for fewer than 15 years b/t 1995 and 2015.
+	f = open("./CPI_Final.txt", 'r')
+	fields = ("country", "year", "val")
+	conn = db()
+	cursor = conn.cursor()
+	# we just make year int because m/d doesn't matter
+	cursor.execute("CREATE TABLE CPI (%s varchar(250), %s int, %s float);" % fields)
+	years = f.readline().split()
+	
+	def is_number(s):
+		''' is s a number? needed for line_fix '''
+		try:
+			float(s)
+			return True
+		except ValueError:
+			return False
+	def line_fix(line):
+		''' dammit costa rica!
+		necessary for countries with multiple words '''
+		l = line.split('\t')
+		i = 0
+		c = ""
+		while is_number(l[i]) is False:
+			c += l[i]
+			i += 1
+		return([c] + l[i:])
+		
+	for line in f:
+		# clean the line; we want [country, 1995_val, 1996_val, etc] and not [cou, ntry, etc]
+		l = line_fix(line)
 
+		country = l[0]
+		
+		# because the split('\t') leaves \n on the last one...
+		l[-1] = l[-1].split()[0]
+		
+		for i in range(1, len(l)):
+			# we only want to add table for years with values
+			if l[i] != '0':
+				data = (country, years[i-1], l[i])
+			
+				cmd0 = "INSERT INTO CPI (%s, %s, %s) " % fields
+				cmd1 = "VALUES (%r, %r, %r)" % data
+				cmd = cmd0 + cmd1	
+				# Add to our db:
+				cursor.execute(cmd)
 
+	conn.commit()
+	cursor.close()
+	conn.close()
+
+add_CPI_table()
 #def get_category_links(section_url):
     
 

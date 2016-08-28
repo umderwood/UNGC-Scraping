@@ -46,16 +46,9 @@ summary(df_postgres)
 # length(clist[[1]])
 clist[[1]][1]
 
-# empty data.frame construction
-Country = character()
-Year = as.Date(character())
-Firms = numeric()
-Sectors = numeric()
-Types = numeric()
-df = data.frame(c(Country, Year, Firms, Sectors, Types))
-df
-df_postgres[[2]]
-df_postgres[[1]]
+dbGetQuery(con, 'DROP TABLE IF EXISTS BY_COUNTRY')
+dbGetQuery(con, "CREATE TABLE BY_COUNTRY (Country CHAR(250), Date DATE, Firms INT, Sectors INT, Types INT, CPI FLOAT);")
+
 # Again, weird. starts at 1, heathens. Iterate through country list, saving # of active members each year bt 1995 and 2016
 for(j in 1:10){#length(clist[[1]])){
   cry = clist[[1]][j]
@@ -69,5 +62,4 @@ for(j in 1:10){#length(clist[[1]])){
     yr = yr + 10000
   }
 }
-summary(df)
 df
