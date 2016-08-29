@@ -151,18 +151,44 @@ def add_ungc_table():
 		conn.commit()
 		conn.close()
 
-
 def add_worldbank_table():
-	f = open("/Downloads/WGI_csv/WGI_Data.csv", 'r')
+	f = open("./WGI_Data.txt", 'r')
+	conn = db()
+	cursor = conn.cursor()
 	fields = ("country", "ind_code", "year", "val")
-	cursor.execute("CREATE TABLE WGI (%s varchar(250), %s varchar(150), %s date, %s float);" % fields)
-	first = f.readline()
+	cursor.execute('''drop table if exists WGI;''')
+
+	cursor.execute("CREATE TABLE WGI (%s varchar(250), %s varchar(150), %s int, %s float);" % fields)
+	first = f.readline().split('\t')
+	print(first, first[3:])
 	for line in f:
-		for i, year in enumerate(first[4:]):
-			entry = (line[0], line[3], year, line[i+4])
-		
-		cursor.execute('INSERT INTO WGI (%s, %s, %s, %s) VALUES (%s, %s, %s, %s);' % entry)
+		# tab delimited is as close as we can get to ok
+		l = line.split('\t')
+		for i, year in enumerate(first[3:]):
+			# dammit commas and spaces. WHY DO YOU PUT COMMAS IN A COUNTRY NAME IN A CSV
+			if year == '2014\n':
+				year = '2014'
+				try: # popping \n
+					l[i+3] = l[i+3].split()[0]
+				# If there is only a \n (no value for american samoa)
+				except IndexError:
+					l[i+3] = ''
+			l[0] = fix(l[0])
+			entry = (l[0], l[2], year, l[i+3])
+			if entry[3] != '':
+				cmd0 = "INSERT INTO WGI (%s, %s, %s, %s) " % fields
+				cmd1 = "VALUES (%r, %r, %r, %r);" % entry
+				cmd = cmd0 + cmd1	
+				#print(cmd)
+				# Add to our db:
+				cursor.execute(cmd)	
+		#cursor.execute('INSERT INTO WGI (%s, %s, %s, %s) VALUES (%s, %s, %s, %s);' % entry)
 	f.close()
+	conn.commit()
+	cursor.close()
+	conn.close()
+	
+#add_worldbank_table()
 
 def count_by_years_table():
 	
@@ -249,16 +275,16 @@ def add_CPI_table():
 				data = (country, years[i-1], l[i])
 			
 				cmd0 = "INSERT INTO CPI (%s, %s, %s) " % fields
-				cmd1 = "VALUES (%r, %r, %r)" % data
+				cmd1 = "VALUES (%r, %r, %r);" % data
 				cmd = cmd0 + cmd1	
 				# Add to our db:
 				cursor.execute(cmd)
-
+	f.close()
 	conn.commit()
 	cursor.close()
 	conn.close()
 
-add_CPI_table()
+#add_CPI_table()
 #def get_category_links(section_url):
     
 
