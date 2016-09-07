@@ -6,21 +6,65 @@ import urllib3, certifi, psycopg2, string
 from dateutil.parser import parse
 
 
-def db():
-	'''globals are bad, mmkay?'''
-	# Use the try if we might not connect to the db
-	try:
 
-		# db login info
-		connect_str = "dbname='ungc_test' user='ducttapecreator' host='localhost' "
+class db:
+	'''Class containing the database connection
+	Makes use of psycopg2 cleaner and easier
+	No need for global connection to DB'''
+	def __init__(self):
+		'''Make new db object, consolidating psycopg2.connect and psycopg2.connect.cursor into one thing'''
+		# Use the try if we might not connect to the db
+		try:
+			# db login info
+			# may want to pass this into init later, if we have multiple dbs
+			connect_str = "dbname='ungc_test' user='ducttapecreator' host='localhost'"
 
-		# use our connection values to establish a connection
-		conn = psycopg2.connect(connect_str)
-		# create a psycopg2 cursor that can execute queries
-		return(conn)
-	except Exception as e:
-		print("Uh oh, can't connect. Invalid dbname, user or password?")
-		print(e)
+			# use our connection values to establish a connection
+			self.conn = psycopg2.connect(connect_str)
+			self.cursor = self.conn.cursor()
+			# create a psycopg2 cursor that can execute queries
+			#return(conn)
+		except Exception as e:
+			print("Can't connect. Invalid dbname, user or password?")
+			print(e)
+
+	def is_closed(self):
+		if self.cursor.closed:
+			print("Please create a new db object.")
+			return(True)
+		else:
+			return(False)
+
+	
+	def commit(self):
+		#breififying
+		if not self.is_closed():
+			self.conn.commit()
+	
+	def execute(self, exec_string):
+		#breififying
+		if not self.is_closed():
+			self.cursor.execute(exec_string)
+
+	def query(self, exec_string):
+		'''distinguish from execute by returning a list instead of the weird buffer thing'''		
+		if not self.is_closed():
+			self.execute(exec_string)
+			self.query_results = self.cursor.fetchall()
+		
+
+	def close(self):
+		# May not be the best way to do this, but is_closed() should protect from error.
+		if not self.is_closed():
+			self.cursor.close()
+			self.conn.close()
+	
+	def __str__(self):
+		try:
+			return str(self.query_results)
+		except AttributeError:
+			print('Please query the DB first')
+
 
 def fix(stri, fu = 0):
 	'''stri to clean for db entry
@@ -35,7 +79,6 @@ def fix(stri, fu = 0):
 	if stri is not None:
 		stri = stri.lower()
 		stri = "".join(l for l in stri if l not in string.punctuation)
-		#stri = stri.replace(" ","_")
 		if(fu):
 			stri = fux(stri)
 		return(stri)
@@ -92,12 +135,12 @@ def add_ungc_table():
 	# Fill table with members of UNGC
 	# Can add fields to active, noncomm or delisted by looking at status
 	
-	conn = db()
-	cursor = conn.cursor()
+	database = db()
+	
 	
 	fields = ("name", "org_type", "sector", "country", "global_compact_status", "date_joined", "date_due", "employees", "ownership")
-	cursor.execute('''drop table if exists UNGC;''')
-	cursor.execute("CREATE TABLE UNGC (%s varchar(250), %s varchar(150), %s varchar(150), %s varchar(150), %s varchar(150), %s date, %s date, %s int, %s varchar(150));" % fields)
+	database.execute('''drop table if exists UNGC;''')
+	database.execute("CREATE TABLE UNGC (%s varchar(250), %s varchar(150), %s varchar(150), %s varchar(150), %s varchar(150), %s date, %s date, %s int, %s varchar(150));" % fields)
 	# The half of active link after page number
 	THE_REST = 	"&search[keywords]=&search[per_page]=50&search[sort_direction]=asc&search[sort_field]=&utf8="
 	
@@ -137,9 +180,8 @@ def add_ungc_table():
 			#cmd = cmd.replace('"', "'")
 			# Add to our db:
 			try:
-				cursor.execute(cmd)
-			except psycopg2.ProgrammingError: # I think... this is because SQL differentiates bt " and '
-				print('ah, piss')
+				database.execute(cmd)
+			except psycopg2.ProgrammingError: # SQL differentiates between " and '
 				return(1)
 		
 		# make sure that we're getting the same number of each of these; names had same tag in headings and content of table
@@ -148,45 +190,44 @@ def add_ungc_table():
 		
 
 		# Save db
-		conn.commit()
-		conn.close()
+		database.commit()
+		database.close()
 
 def add_worldbank_table():
-	f = open("./WGI_Data.txt", 'r')
-	conn = db()
-	cursor = conn.cursor()
+	
+	database = db()
+	
 	fields = ("country", "ind_code", "year", "val")
-	cursor.execute('''drop table if exists WGI;''')
+	database.execute('''drop table if exists WGI;''')
 
-	cursor.execute("CREATE TABLE WGI (%s varchar(250), %s varchar(150), %s int, %s float);" % fields)
-	first = f.readline().split('\t')
-	print(first, first[3:])
-	for line in f:
-		# tab delimited is as close as we can get to ok
-		l = line.split('\t')
-		for i, year in enumerate(first[3:]):
-			# dammit commas and spaces. WHY DO YOU PUT COMMAS IN A COUNTRY NAME IN A CSV
-			if year == '2014\n':
-				year = '2014'
-				try: # popping \n
-					l[i+3] = l[i+3].split()[0]
-				# If there is only a \n (no value for american samoa)
-				except IndexError:
-					l[i+3] = ''
-			l[0] = fix(l[0])
-			entry = (l[0], l[2], year, l[i+3])
-			if entry[3] != '':
-				cmd0 = "INSERT INTO WGI (%s, %s, %s, %s) " % fields
-				cmd1 = "VALUES (%r, %r, %r, %r);" % entry
-				cmd = cmd0 + cmd1	
-				#print(cmd)
-				# Add to our db:
-				cursor.execute(cmd)	
-		#cursor.execute('INSERT INTO WGI (%s, %s, %s, %s) VALUES (%s, %s, %s, %s);' % entry)
-	f.close()
-	conn.commit()
-	cursor.close()
-	conn.close()
+	database.execute("CREATE TABLE WGI (%s varchar(250), %s varchar(150), %s int, %s float);" % fields)
+	with open("./WGI_Data.txt", 'r') as f:
+		first = f.readline().split('\t')
+		print(first, first[3:])
+		for line in f:
+			# tab delimited is as close as we can get to ok
+			l = line.split('\t')
+			for i, year in enumerate(first[3:]):
+				# dammit commas and spaces. WHY DO YOU PUT COMMAS IN A COUNTRY NAME IN A CSV
+				if year == '2014\n':
+					year = '2014'
+					try: # popping \n
+						l[i+3] = l[i+3].split()[0]
+					# If there is only a \n (no value for american samoa)
+					except IndexError:
+						l[i+3] = ''
+				l[0] = fix(l[0])
+				entry = (l[0], l[2], year, l[i+3])
+				if entry[3] != '':
+					cmd0 = "INSERT INTO WGI (%s, %s, %s, %s) " % fields
+					cmd1 = "VALUES (%r, %r, %r, %r);" % entry
+					cmd = cmd0 + cmd1	
+					#print(cmd)
+					# Add to our db:
+					database.execute(cmd)	
+
+	database.commit()
+	database.close()
 	
 #add_worldbank_table()
 
@@ -195,52 +236,71 @@ def count_by_years_table():
 	# make a list of countries in the UNGC list
 	clist = []
 	# Fill cursor buffer
-	cursor.execute('select distinct country from ungc')
+	database = db()
+	database.query('select distinct country from ungc order by country;')
 	# dump cursor buffer into list
-	for country in cursor:
+
+	for line in database.query_results:
 		# country is a tuple, like ('country', ) so it needs the index
-		clist.append(country[0])
+		#print(line[0])
+		clist.append(line[0])
 		
 	# let's just start a new table
-	cursor.execute('drop table if exists BY_COUNTRY;')
-	cursor.execute("CREATE TABLE BY_COUNTRY (Country CHAR(250), Date DATE, Firms INT, Sectors INT, Types INT, CPI FLOAT);")
+	database.execute('drop table if exists BY_COUNTRY;')
+	database.execute("CREATE TABLE BY_COUNTRY (Country VARCHAR(250), Year INT, Firms INT, Sectors INT, Types INT, CPI INT);")
+	from timeit import default_timer as timer
 
-	def year_total_count(year, cry):
-		st = "SELECT count(name) as entities, count(distinct sector) as sectors, count(distinct org_type) as orgs from UNGC where date_joined <= '%s' and date_due > '%s' and country='%s' limit 20;" % (year, year+10000, country)
-		
-		return(cursor.execute(st))
+	start = timer()
+
+
+	def year_total_count(database, year, cry):
+		'''Returns query '''
+		st = "SELECT count(name), count(distinct sector), count(distinct org_type) from UNGC where date_joined < '%s' and date_due >= '%s' and country='%s' limit 20;" % (year, year+10000, cry)
+		database.query(st)
+		return(database.query_results)
 	
+	def get_cpi(database, yr, cry):
+		year = str(yr)[:4]
+		# the ~ is sql for expression matching, and * for case non sensitive
+		st = "SELECT val, country from CPI where year='%s' and country ~* '%s';" % (year, cry)
+		
+		database.query(st)
+		if len(database.query_results) == 0:
+			#print(cry)
+			pass
+		else:
+			print(cry, database.query_results[0])
+
 	for j in range(len(clist)):
 		cry = clist[j]
+		# ISO standard date format
 		yr = 19950101
 		for i in range(1,22):
-			#print(country)
-			df_postgres = year_total_count(yr, cry)[0]
-			print(yr)
+			#print(yr)
+			get_cpi(database, yr, cry)
+			# indexed because it's one tuple in a list
+			# df_postgres = year_total_count(database, yr, cry)[0]
+			# st = (cry, yr, df_postgres[0], df_postgres[1], df_postgres[2])
 			#print(df_postgres)
 			yr = yr + 10000
 
-	
-# show that we have stuff in db:
-# cursor.execute("""SELECT date_joined
-# 					 from ungc
-# 					 where date_joined < '2014/01/01'
-# 					 limit 50;""")
-#cs = cursor.fetchall()
-#for c in cs:
-#	print(c)
+	end = timer()
+
+	print(end - start)
+
 
 def add_CPI_table():
 	''' Adds CPI data from Transparency International. Not country rank though, not really useful for anything '''
 	# CPI_Final has the CPI data from TI, with 0 instead of blanks, 
 	# and countries removed if they have data for fewer than 15 years b/t 1995 and 2015.
-	f = open("./CPI_Final.txt", 'r')
+	
 	fields = ("country", "year", "val")
-	conn = db()
-	cursor = conn.cursor()
+	database = db()
+	database.execute('drop table if exists CPI;')
 	# we just make year int because m/d doesn't matter
-	cursor.execute("CREATE TABLE CPI (%s varchar(250), %s int, %s float);" % fields)
-	years = f.readline().split()
+	
+	database.execute("CREATE TABLE CPI (%s varchar(250), %s int, %s float);" % fields)
+	
 	
 	def is_number(s):
 		''' is s a number? needed for line_fix '''
@@ -249,6 +309,7 @@ def add_CPI_table():
 			return True
 		except ValueError:
 			return False
+
 	def line_fix(line):
 		''' dammit costa rica!
 		necessary for countries with multiple words '''
@@ -258,35 +319,37 @@ def add_CPI_table():
 		while is_number(l[i]) is False:
 			c += l[i]
 			i += 1
+		c = "".join([ch for ch in c if ch not in string.punctuation])
 		return([c] + l[i:])
-		
-	for line in f:
-		# clean the line; we want [country, 1995_val, 1996_val, etc] and not [cou, ntry, etc]
-		l = line_fix(line)
+	
+	with open("./CPI_Final.txt", 'r') as f:
+		years = f.readline().split()
+		for line in f:
+			# clean the line; we want [country, 1995_val, 1996_val, etc] and not [cou, ntry, etc]
+			l = line_fix(line)
 
-		country = l[0]
-		
-		# because the split('\t') leaves \n on the last one...
-		l[-1] = l[-1].split()[0]
-		
-		for i in range(1, len(l)):
-			# we only want to add table for years with values
-			if l[i] != '0':
-				data = (country, years[i-1], l[i])
+			country = l[0]
 			
-				cmd0 = "INSERT INTO CPI (%s, %s, %s) " % fields
-				cmd1 = "VALUES (%r, %r, %r);" % data
-				cmd = cmd0 + cmd1	
-				# Add to our db:
-				cursor.execute(cmd)
-	f.close()
-	conn.commit()
-	cursor.close()
-	conn.close()
+			# because the split('\t') leaves \n on the last one...
+			l[-1] = l[-1].split()[0]
+			
+			for i in range(1, len(l)):
+				# we only want to add table for years with values
+				if l[i] != '0':
+					data = (country, years[i-1], l[i])
+				
+					cmd0 = "INSERT INTO CPI (%s, %s, %s) " % fields
+					cmd1 = "VALUES (%r, %r, %r);" % data
+					cmd = cmd0 + cmd1	
+					# Add to our db:
+					database.execute(cmd)
 
+	database.commit()
+	database.close()
+	
 #add_CPI_table()
 #def get_category_links(section_url):
-    
+
 
 
 
