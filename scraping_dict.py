@@ -11,13 +11,13 @@ class db:
 	'''Class containing the database connection
 	Makes use of psycopg2 cleaner and easier
 	No need for global connection to DB'''
-	def __init__(self):
+	def __init__(self, username):
 		'''Make new db object, consolidating psycopg2.connect and psycopg2.connect.cursor into one thing'''
 		# Use the try if we might not connect to the db
 		try:
 			# db login info
 			# may want to pass this into init later, if we have multiple dbs
-			connect_str = "dbname='ungc_test' user='ducttapecreator' host='localhost'"
+			connect_str = "dbname='ungc_test' user='%s' host='localhost'" %(username)
 
 			# use our connection values to establish a connection
 			self.conn = psycopg2.connect(connect_str)
